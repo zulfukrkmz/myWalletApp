@@ -6,6 +6,7 @@ import com.myCompany.myWalletApp.dto.request.WithdrawRequest;
 import com.myCompany.myWalletApp.dto.response.TransactionResponse;
 import com.myCompany.myWalletApp.dto.response.WalletResponse;
 import com.myCompany.myWalletApp.entity.Customer;
+import com.myCompany.myWalletApp.entity.Transaction;
 import com.myCompany.myWalletApp.entity.Wallet;
 import com.myCompany.myWalletApp.enums.Currency;
 import com.myCompany.myWalletApp.enums.OppositePartyType;
@@ -16,9 +17,7 @@ import com.myCompany.myWalletApp.repository.TransactionRepository;
 import com.myCompany.myWalletApp.repository.WalletRepository;
 import com.myCompany.myWalletApp.service.WalletService;
 import jakarta.persistence.EntityNotFoundException;
-import jakarta.transaction.Transaction;
 import lombok.RequiredArgsConstructor;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -34,18 +33,9 @@ public class WalletServiceImpl implements WalletService {
     private final CustomerRepository customerRepository;
     private final TransactionRepository transactionRepository;
 
-    // Constructor Injection
-    @Autowired
-    public WalletServiceImpl(WalletRepository walletRepository,
-                         CustomerRepository customerRepository,
-                         TransactionRepository transactionRepository) {
-        this.walletRepository = walletRepository;
-        this.customerRepository = customerRepository;
-        this.transactionRepository = transactionRepository;
-    }
-
     @Override
     public WalletResponse createWallet(CreateWalletRequest request) {
+
         // 1. Müşteri bilgisi alınacak. (Şu anlık müşteri id nasıl geliyor netleşmediği için customer'ı varsayalım ya da hazır müşteri alalım.)
         // Gerçek sistemde kimlik doğrulama sonrası CustomerId alınırdı (SecurityContext gibi). Şimdi manuel alıyoruz.
 
@@ -58,8 +48,8 @@ public class WalletServiceImpl implements WalletService {
                 .customer(customer)
                 .walletName(request.getWalletName())
                 .currency(Currency.valueOf(request.getCurrency()))
-                .activeForShopping(request.isActiveForShopping())
-                .activeForWithdraw(request.isActiveForWithdraw())
+                .activeForShopping(request.getActiveForShopping())
+                .activeForWithdraw(request.getActiveForWithdraw())
                 .balance(BigDecimal.ZERO)
                 .usableBalance(BigDecimal.ZERO)
                 .build();
