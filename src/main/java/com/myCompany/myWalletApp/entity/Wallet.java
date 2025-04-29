@@ -2,7 +2,6 @@ package com.myCompany.myWalletApp.entity;
 
 import com.myCompany.myWalletApp.enums.Currency;
 import jakarta.persistence.*;
-import jakarta.transaction.Transaction;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
@@ -18,6 +17,7 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 @AllArgsConstructor
 @Entity
+@Table(name = "wallet")
 public class Wallet {
 
     @Id
