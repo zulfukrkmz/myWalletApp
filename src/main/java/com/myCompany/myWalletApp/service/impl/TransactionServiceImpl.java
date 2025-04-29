@@ -11,7 +11,8 @@ import com.myCompany.myWalletApp.repository.WalletRepository;
 import com.myCompany.myWalletApp.service.TransactionService;
 import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
-import org.springframework.beans.factory.annotation.Autowired;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -25,59 +26,56 @@ public class TransactionServiceImpl implements TransactionService {
     private final TransactionRepository transactionRepository;
     private final WalletRepository walletRepository;
 
-    // Constructor Injection
-    @Autowired
-    public TransactionServiceImpl(WalletRepository walletRepository,
-                             TransactionRepository transactionRepository) {
-        this.walletRepository = walletRepository;
-        this.transactionRepository = transactionRepository;
-    }
+    private static final Logger logger = LoggerFactory.getLogger(TransactionServiceImpl.class);
 
     @Override
     public TransactionResponse approveOrDenyTransaction(Long transactionId, ApproveTransactionRequest request) {
-        Transaction transaction = transactionRepository.findById(transactionId)
-                .orElseThrow(() -> new EntityNotFoundException("Transaction not found"));
+        try {
+            Transaction transaction = transactionRepository.findById(transactionId)
+                    .orElseThrow(() -> new EntityNotFoundException("Transaction not found"));
 
-        if (transaction.getStatus() != TransactionStatus.PENDING) {
-            throw new IllegalStateException("Only pending transactions can be approved or denied");
-        }
-
-        TransactionStatus newStatus = TransactionStatus.valueOf(request.getStatus());
-
-        transaction.setStatus(newStatus);
-
-        Wallet wallet = transaction.getWallet();
-        BigDecimal amount = transaction.getAmount();
-
-        if (transaction.getType() == TransactionType.DEPOSIT) {
-            if (newStatus == TransactionStatus.APPROVED) {
-                // Eğer deposit onaylanırsa, usableBalance'ı artır
-                wallet.setUsableBalance(wallet.getUsableBalance().add(amount));
-            } else if (newStatus == TransactionStatus.DENIED) {
-                // Eğer deposit reddedilirse, balance ve usableBalance düşürülmeli
-                wallet.setBalance(wallet.getBalance().subtract(amount));
+            if (transaction.getStatus() != TransactionStatus.PENDING) {
+                throw new IllegalStateException("Only pending transactions can be approved or denied");
             }
-        } else if (transaction.getType() == TransactionType.WITHDRAW) {
-            if (newStatus == TransactionStatus.APPROVED) {
-                // Eğer withdraw onaylanırsa, balance düşürülür
-                wallet.setBalance(wallet.getBalance().subtract(amount));
-            } else if (newStatus == TransactionStatus.DENIED) {
-                // Withdraw reddedilirse usableBalance eski haline getirilir
-                wallet.setUsableBalance(wallet.getUsableBalance().add(amount));
+
+            TransactionStatus newStatus = TransactionStatus.valueOf(request.getStatus());
+
+            transaction.setStatus(newStatus);
+
+            Wallet wallet = transaction.getWallet();
+            BigDecimal amount = transaction.getAmount();
+
+            if (transaction.getType() == TransactionType.DEPOSIT) {
+                if (newStatus == TransactionStatus.APPROVED) {
+                    wallet.setUsableBalance(wallet.getUsableBalance().add(amount));
+                } else if (newStatus == TransactionStatus.DENIED) {
+                    wallet.setBalance(wallet.getBalance().subtract(amount));
+                }
+            } else if (transaction.getType() == TransactionType.WITHDRAW) {
+                if (newStatus == TransactionStatus.APPROVED) {
+                    wallet.setBalance(wallet.getBalance().subtract(amount));
+                } else if (newStatus == TransactionStatus.DENIED) {
+                    wallet.setUsableBalance(wallet.getUsableBalance().add(amount));
+                }
             }
+
+            walletRepository.save(wallet);
+            transactionRepository.save(transaction);
+
+            return TransactionResponse.builder()
+                    .id(transaction.getId())
+                    .amount(transaction.getAmount())
+                    .type(transaction.getType().name())
+                    .oppositePartyType(transaction.getOppositePartyType().name())
+                    .oppositeParty(transaction.getOppositeParty())
+                    .status(transaction.getStatus().name())
+                    .build();
+        } catch (EntityNotFoundException | IllegalStateException e) {
+            logger.error("Error processing transaction with ID {}: {}", transactionId, e.getMessage(), e);
+            throw e; // Hata durumunda yukarıya fırlatıyoruz
+        } catch (Exception e) {
+            logger.error("Unexpected error while processing transaction with ID {}: {}", transactionId, e.getMessage(), e);
+            throw new RuntimeException("Unexpected error occurred while processing the transaction", e);
         }
-
-        walletRepository.save(wallet);
-        transactionRepository.save(transaction);
-
-        return TransactionResponse.builder()
-                .id(transaction.getId())
-                .amount(transaction.getAmount())
-                .type(transaction.getType().name())
-                .oppositePartyType(transaction.getOppositePartyType().name())
-                .oppositeParty(transaction.getOppositeParty())
-                .status(transaction.getStatus().name())
-                .build();
     }
-
 }

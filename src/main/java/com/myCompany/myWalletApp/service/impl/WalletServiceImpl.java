@@ -18,6 +18,8 @@ import com.myCompany.myWalletApp.repository.WalletRepository;
 import com.myCompany.myWalletApp.service.WalletService;
 import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -33,183 +35,202 @@ public class WalletServiceImpl implements WalletService {
     private final CustomerRepository customerRepository;
     private final TransactionRepository transactionRepository;
 
+    private static final Logger logger = LoggerFactory.getLogger(WalletServiceImpl.class);
+
     @Override
     public WalletResponse createWallet(CreateWalletRequest request) {
+        try {
+            Customer customer = customerRepository.findById(1L)
+                    .orElseThrow(() -> new EntityNotFoundException("Customer not found"));
 
-        // 1. Müşteri bilgisi alınacak. (Şu anlık müşteri id nasıl geliyor netleşmediği için customer'ı varsayalım ya da hazır müşteri alalım.)
-        // Gerçek sistemde kimlik doğrulama sonrası CustomerId alınırdı (SecurityContext gibi). Şimdi manuel alıyoruz.
+            Wallet wallet = Wallet.builder()
+                    .customer(customer)
+                    .walletName(request.getWalletName())
+                    .currency(Currency.valueOf(request.getCurrency()))
+                    .activeForShopping(request.getActiveForShopping())
+                    .activeForWithdraw(request.getActiveForWithdraw())
+                    .balance(BigDecimal.ZERO)
+                    .usableBalance(BigDecimal.ZERO)
+                    .build();
 
-        // ÖRNEK: Dummy bir customerId ile çalışalım şimdilik (örneğin id = 1L).
-        Customer customer = customerRepository.findById(1L)
-                .orElseThrow(() -> new EntityNotFoundException("Customer not found"));
+            Wallet savedWallet = walletRepository.save(wallet);
 
-        // 2. Wallet entity oluşturulacak
-        Wallet wallet = Wallet.builder()
-                .customer(customer)
-                .walletName(request.getWalletName())
-                .currency(Currency.valueOf(request.getCurrency()))
-                .activeForShopping(request.getActiveForShopping())
-                .activeForWithdraw(request.getActiveForWithdraw())
-                .balance(BigDecimal.ZERO)
-                .usableBalance(BigDecimal.ZERO)
-                .build();
-
-        // 3. Kaydet
-        Wallet savedWallet = walletRepository.save(wallet);
-
-        // 4. Response DTO'ya map edip döndür
-        return WalletResponse.builder()
-                .id(savedWallet.getId())
-                .walletName(savedWallet.getWalletName())
-                .currency(savedWallet.getCurrency().name())
-                .balance(savedWallet.getBalance())
-                .usableBalance(savedWallet.getUsableBalance())
-                .activeForShopping(savedWallet.isActiveForShopping())
-                .activeForWithdraw(savedWallet.isActiveForWithdraw())
-                .build();
+            return WalletResponse.builder()
+                    .id(savedWallet.getId())
+                    .walletName(savedWallet.getWalletName())
+                    .currency(savedWallet.getCurrency().name())
+                    .balance(savedWallet.getBalance())
+                    .usableBalance(savedWallet.getUsableBalance())
+                    .activeForShopping(savedWallet.isActiveForShopping())
+                    .activeForWithdraw(savedWallet.isActiveForWithdraw())
+                    .build();
+        } catch (EntityNotFoundException e) {
+            logger.error("Error creating wallet: {}", e.getMessage(), e);
+            throw e;
+        } catch (Exception e) {
+            logger.error("Unexpected error while creating wallet: {}", e.getMessage(), e);
+            throw new RuntimeException("Unexpected error occurred while creating the wallet", e);
+        }
     }
-
 
     @Override
     public List<WalletResponse> getWallets(Currency currency) {
-        // Şimdilik sadece customerId = 1 için filtreleyelim
-        Customer customer = customerRepository.findById(1L)
-                .orElseThrow(() -> new EntityNotFoundException("Customer not found"));
+        try {
+            // Şimdilik sadece customerId = 1 için filtreleyelim
+            Customer customer = customerRepository.findById(1L)
+                    .orElseThrow(() -> new EntityNotFoundException("Customer not found"));
 
-        List<Wallet> wallets;
+            List<Wallet> wallets;
 
-        if (currency != null) {
-            wallets = walletRepository.findByCustomerAndCurrency(customer, currency);
-        } else {
-            wallets = walletRepository.findByCustomer(customer);
+            if (currency != null) {
+                wallets = walletRepository.findByCustomerAndCurrency(customer, currency);
+            } else {
+                wallets = walletRepository.findByCustomer(customer);
+            }
+
+            return wallets.stream()
+                    .map(wallet -> WalletResponse.builder()
+                            .id(wallet.getId())
+                            .walletName(wallet.getWalletName())
+                            .currency(wallet.getCurrency().name())
+                            .balance(wallet.getBalance())
+                            .usableBalance(wallet.getUsableBalance())
+                            .activeForShopping(wallet.isActiveForShopping())
+                            .activeForWithdraw(wallet.isActiveForWithdraw())
+                            .build())
+                    .toList();
+        } catch (EntityNotFoundException e) {
+            logger.error("Error retrieving wallets: {}", e.getMessage(), e);
+            throw e;
+        } catch (Exception e) {
+            logger.error("Unexpected error while retrieving wallets: {}", e.getMessage(), e);
+            throw new RuntimeException("Unexpected error occurred while retrieving wallets", e);
         }
-
-        return wallets.stream()
-                .map(wallet -> WalletResponse.builder()
-                        .id(wallet.getId())
-                        .walletName(wallet.getWalletName())
-                        .currency(wallet.getCurrency().name())
-                        .balance(wallet.getBalance())
-                        .usableBalance(wallet.getUsableBalance())
-                        .activeForShopping(wallet.isActiveForShopping())
-                        .activeForWithdraw(wallet.isActiveForWithdraw())
-                        .build())
-                .toList();
     }
-
 
     @Override
     public TransactionResponse deposit(Long walletId, DepositRequest request) {
-        Wallet wallet = walletRepository.findById(walletId)
-                .orElseThrow(() -> new EntityNotFoundException("Wallet not found"));
+        try {
+            Wallet wallet = walletRepository.findById(walletId)
+                    .orElseThrow(() -> new EntityNotFoundException("Wallet not found"));
 
-        BigDecimal amount = request.getAmount();
+            BigDecimal amount = request.getAmount();
+            TransactionStatus status = amount.compareTo(BigDecimal.valueOf(1000)) > 0
+                    ? TransactionStatus.PENDING
+                    : TransactionStatus.APPROVED;
 
-        // Transaction durumu belirleme
-        TransactionStatus status = amount.compareTo(BigDecimal.valueOf(1000)) > 0
-                ? TransactionStatus.PENDING
-                : TransactionStatus.APPROVED;
+            Transaction transaction = Transaction.builder()
+                    .wallet(wallet)
+                    .amount(amount)
+                    .type(TransactionType.DEPOSIT)
+                    .oppositePartyType(OppositePartyType.valueOf(request.getSourceType()))
+                    .oppositeParty(request.getSource())
+                    .status(status)
+                    .build();
 
-        // Transaction oluştur
-        Transaction transaction = Transaction.builder()
-                .wallet(wallet)
-                .amount(amount)
-                .type(TransactionType.DEPOSIT)
-                .oppositePartyType(OppositePartyType.valueOf(request.getSourceType()))
-                .oppositeParty(request.getSource())
-                .status(status)
-                .build();
+            transactionRepository.save(transaction);
 
-        transactionRepository.save(transaction);
+            wallet.setBalance(wallet.getBalance().add(amount));
+            if (status == TransactionStatus.APPROVED) {
+                wallet.setUsableBalance(wallet.getUsableBalance().add(amount));
+            }
+            walletRepository.save(wallet);
 
-        // Cüzdanın bakiyesini güncelle
-        wallet.setBalance(wallet.getBalance().add(amount));
-        if (status == TransactionStatus.APPROVED) {
-            wallet.setUsableBalance(wallet.getUsableBalance().add(amount));
+            return TransactionResponse.builder()
+                    .id(transaction.getId())
+                    .amount(transaction.getAmount())
+                    .type(transaction.getType().name())
+                    .oppositePartyType(transaction.getOppositePartyType().name())
+                    .oppositeParty(transaction.getOppositeParty())
+                    .status(transaction.getStatus().name())
+                    .build();
+        } catch (EntityNotFoundException | IllegalArgumentException e) {
+            logger.error("Error during deposit operation on wallet with ID {}: {}", walletId, e.getMessage(), e);
+            throw e;
+        } catch (Exception e) {
+            logger.error("Unexpected error during deposit operation on wallet with ID {}: {}", walletId, e.getMessage(), e);
+            throw new RuntimeException("Unexpected error occurred during the deposit operation", e);
         }
-        walletRepository.save(wallet);
-
-        // Transaction response dön
-        return TransactionResponse.builder()
-                .id(transaction.getId())
-                .amount(transaction.getAmount())
-                .type(transaction.getType().name())
-                .oppositePartyType(transaction.getOppositePartyType().name())
-                .oppositeParty(transaction.getOppositeParty())
-                .status(transaction.getStatus().name())
-                .build();
     }
-
 
     @Override
     public TransactionResponse withdraw(Long walletId, WithdrawRequest request) {
-        Wallet wallet = walletRepository.findById(walletId)
-                .orElseThrow(() -> new EntityNotFoundException("Wallet not found"));
+        try {
+            Wallet wallet = walletRepository.findById(walletId)
+                    .orElseThrow(() -> new EntityNotFoundException("Wallet not found"));
 
-        // Eğer cüzdan ayarları izin vermiyorsa hata döndür
-        if (!wallet.isActiveForWithdraw()) {
-            throw new IllegalStateException("Withdraw is not allowed for this wallet");
+            if (!wallet.isActiveForWithdraw()) {
+                throw new IllegalStateException("Withdraw is not allowed for this wallet");
+            }
+
+            BigDecimal amount = request.getAmount();
+            if (wallet.getUsableBalance().compareTo(amount) < 0) {
+                throw new IllegalArgumentException("Insufficient usable balance");
+            }
+
+            TransactionStatus status = amount.compareTo(BigDecimal.valueOf(1000)) > 0
+                    ? TransactionStatus.PENDING
+                    : TransactionStatus.APPROVED;
+
+            Transaction transaction = Transaction.builder()
+                    .wallet(wallet)
+                    .amount(amount)
+                    .type(TransactionType.WITHDRAW)
+                    .oppositePartyType(OppositePartyType.valueOf(request.getDestinationType()))
+                    .oppositeParty(request.getDestination())
+                    .status(status)
+                    .build();
+
+            transactionRepository.save(transaction);
+
+            wallet.setUsableBalance(wallet.getUsableBalance().subtract(amount));
+            if (status == TransactionStatus.APPROVED) {
+                wallet.setBalance(wallet.getBalance().subtract(amount));
+            }
+
+            walletRepository.save(wallet);
+
+            return TransactionResponse.builder()
+                    .id(transaction.getId())
+                    .amount(transaction.getAmount())
+                    .type(transaction.getType().name())
+                    .oppositePartyType(transaction.getOppositePartyType().name())
+                    .oppositeParty(transaction.getOppositeParty())
+                    .status(transaction.getStatus().name())
+                    .build();
+        } catch (EntityNotFoundException | IllegalArgumentException | IllegalStateException e) {
+            logger.error("Error during withdraw operation on wallet with ID {}: {}", walletId, e.getMessage(), e);
+            throw e;
+        } catch (Exception e) {
+            logger.error("Unexpected error during withdraw operation on wallet with ID {}: {}", walletId, e.getMessage(), e);
+            throw new RuntimeException("Unexpected error occurred during the withdraw operation", e);
         }
-
-        BigDecimal amount = request.getAmount();
-
-        // Kullanılabilir bakiye yeterli mi?
-        if (wallet.getUsableBalance().compareTo(amount) < 0) {
-            throw new IllegalArgumentException("Insufficient usable balance");
-        }
-
-        // Transaction durumu belirleme
-        TransactionStatus status = amount.compareTo(BigDecimal.valueOf(1000)) > 0
-                ? TransactionStatus.PENDING
-                : TransactionStatus.APPROVED;
-
-        // Transaction oluştur
-        Transaction transaction = Transaction.builder()
-                .wallet(wallet)
-                .amount(amount)
-                .type(TransactionType.WITHDRAW)
-                .oppositePartyType(OppositePartyType.valueOf(request.getDestinationType()))
-                .oppositeParty(request.getDestination())
-                .status(status)
-                .build();
-
-        transactionRepository.save(transaction);
-
-        // Bakiye güncellemesi
-        wallet.setUsableBalance(wallet.getUsableBalance().subtract(amount));
-        if (status == TransactionStatus.APPROVED) {
-            wallet.setBalance(wallet.getBalance().subtract(amount));
-        }
-
-        walletRepository.save(wallet);
-
-        return TransactionResponse.builder()
-                .id(transaction.getId())
-                .amount(transaction.getAmount())
-                .type(transaction.getType().name())
-                .oppositePartyType(transaction.getOppositePartyType().name())
-                .oppositeParty(transaction.getOppositeParty())
-                .status(transaction.getStatus().name())
-                .build();
     }
-
 
     @Override
     public List<TransactionResponse> getTransactions(Long walletId) {
-        Wallet wallet = walletRepository.findById(walletId)
-                .orElseThrow(() -> new EntityNotFoundException("Wallet not found"));
+        try {
+            Wallet wallet = walletRepository.findById(walletId)
+                    .orElseThrow(() -> new EntityNotFoundException("Wallet not found"));
 
-        List<Transaction> transactions = transactionRepository.findByWallet(wallet);
+            List<Transaction> transactions = transactionRepository.findByWallet(wallet);
 
-        return transactions.stream()
-                .map(tx -> TransactionResponse.builder()
-                        .id(tx.getId())
-                        .amount(tx.getAmount())
-                        .type(tx.getType().name())
-                        .oppositePartyType(tx.getOppositePartyType().name())
-                        .oppositeParty(tx.getOppositeParty())
-                        .status(tx.getStatus().name())
-                        .build())
-                .toList();
+            return transactions.stream()
+                    .map(tx -> TransactionResponse.builder()
+                            .id(tx.getId())
+                            .amount(tx.getAmount())
+                            .type(tx.getType().name())
+                            .oppositePartyType(tx.getOppositePartyType().name())
+                            .oppositeParty(tx.getOppositeParty())
+                            .status(tx.getStatus().name())
+                            .build())
+                    .toList();
+        } catch (EntityNotFoundException e) {
+            logger.error("Error retrieving transactions for wallet with ID {}: {}", walletId, e.getMessage(), e);
+            throw e;
+        } catch (Exception e) {
+            logger.error("Unexpected error while retrieving transactions for wallet with ID {}: {}", walletId, e.getMessage(), e);
+            throw new RuntimeException("Unexpected error occurred while retrieving transactions", e);
+        }
     }
 }
