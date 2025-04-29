@@ -40,7 +40,7 @@ public class WalletServiceImpl implements WalletService {
     @Override
     public WalletResponse createWallet(CreateWalletRequest request) {
         try {
-            Customer customer = customerRepository.findById(1L)
+            Customer customer = customerRepository.findById(request.getCustomerId())
                     .orElseThrow(() -> new EntityNotFoundException("Customer not found"));
 
             Wallet wallet = Wallet.builder()

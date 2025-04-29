@@ -15,6 +15,9 @@ import lombok.NoArgsConstructor;
 public class CreateWalletRequest {
 
     @NotBlank
+    private Long customerId;
+
+    @NotBlank
     private String walletName;
 
     @NotNull
